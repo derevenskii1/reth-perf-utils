@@ -18,6 +18,7 @@ struct CacheStat {
 }
 
 const CACHE_STATS_LEN: usize = 5;
+
 #[derive(Debug)]
 struct CacheStats {
     functions: [CacheStat; CACHE_STATS_LEN],
@@ -25,9 +26,15 @@ struct CacheStats {
 
 impl CacheStats {
     fn print_item(&self, function: &str, index: usize) {
+        let stats = &self.functions[index];
         println!(
             "{: <COL_WIDTH_BIG$}{:>COL_WIDTH_MIDDLE$}{:>COL_WIDTH_MIDDLE$}{:>COL_WIDTH_BIG$.3}{:>COL_WIDTH_BIG$.3}{:>COL_WIDTH_BIG$.3}",
-            function, self.functions[index].hits, self.functions[index].misses, self.functions[index].miss_ratio * 100.0, self.functions[index].penalty, self.functions[index].avg_penalty
+            function,
+            stats.hits,
+            stats.misses,
+            stats.miss_ratio * 100.0,
+            stats.penalty,
+            stats.avg_penalty
         );
     }
 }
@@ -50,26 +57,43 @@ impl From<&CacheDbRecord> for CacheStats {
         let penalty_stats = record.penalty_stats();
 
         for index in 0..total_stats.function.len() {
+            let total = total_stats.function[index] as f64;
+            let misses = miss_stats.function[index] as f64;
+            let hits = hit_stats.function[index] as f64;
+
             cache_stats.functions[index].hits = hit_stats.function[index];
             cache_stats.functions[index].misses = miss_stats.function[index];
-            cache_stats.functions[index].miss_ratio =
-                miss_stats.function[index] as f64 / total_stats.function[index] as f64;
-            cache_stats.functions[index].penalty =
-                cycles_as_secs(penalty_stats.time.function[index]);
-            cache_stats.functions[index].avg_penalty =
-                convert_cycles_to_ns_f64(penalty_stats.time.function[index])
-                    / (1000 * miss_stats.function[index]) as f64;
+            cache_stats.functions[index].miss_ratio = if total > 0.0 {
+                misses / total
+            } else {
+                0.0
+            };
+            cache_stats.functions[index].penalty = cycles_as_secs(penalty_stats.time.function[index]);
+            cache_stats.functions[index].avg_penalty = if misses > 0.0 {
+                convert_cycles_to_ns_f64(penalty_stats.time.function[index]) / (1000.0 * misses)
+            } else {
+                0.0
+            };
         }
-        cache_stats.functions[CACHE_STATS_LEN - 1].hits = hit_stats.function.iter().sum();
-        cache_stats.functions[CACHE_STATS_LEN - 1].misses = miss_stats.function.iter().sum();
-        cache_stats.functions[CACHE_STATS_LEN - 1].miss_ratio =
-            cache_stats.functions[CACHE_STATS_LEN - 1].misses as f64
-                / total_stats.function.iter().sum::<u64>() as f64;
-        cache_stats.functions[CACHE_STATS_LEN - 1].penalty =
-            cycles_as_secs(penalty_stats.time.function.iter().sum());
-        cache_stats.functions[CACHE_STATS_LEN - 1].avg_penalty =
+
+        let total_hits: u64 = hit_stats.function.iter().sum();
+        let total_misses: u64 = miss_stats.function.iter().sum();
+        let total_accesses: u64 = total_stats.function.iter().sum();
+
+        cache_stats.functions[CACHE_STATS_LEN - 1].hits = total_hits;
+        cache_stats.functions[CACHE_STATS_LEN - 1].misses = total_misses;
+        cache_stats.functions[CACHE_STATS_LEN - 1].miss_ratio = if total_accesses > 0 {
+            total_misses as f64 / total_accesses as f64
+        } else {
+            0.0
+        };
+        cache_stats.functions[CACHE_STATS_LEN - 1].penalty = cycles_as_secs(penalty_stats.time.function.iter().sum());
+        cache_stats.functions[CACHE_STATS_LEN - 1].avg_penalty = if total_misses > 0 {
             convert_cycles_to_ns_f64(penalty_stats.time.function.iter().sum())
-                / (1000 * cache_stats.functions[CACHE_STATS_LEN - 1].misses) as f64;
+                / (1000.0 * total_misses as f64)
+        } else {
+            0.0
+        };
 
         cache_stats
     }
@@ -80,7 +104,7 @@ impl Print for CacheStats {
         println!("================================================ Metric of State ===========================================");
         println!(
             "{: <COL_WIDTH_BIG$}{:>COL_WIDTH_MIDDLE$}{:>COL_WIDTH_MIDDLE$}{:>COL_WIDTH_BIG$}{:>COL_WIDTH_BIG$}{:>COL_WIDTH_BIG$}",
-            "State functions", "Hits", "Misses", "Miss ratio (%)","Penalty time(s)", "Avg penalty (us)"
+            "State functions", "Hits", "Misses", "Miss ratio (%)", "Penalty time (s)", "Avg penalty (μs)"
         );
     }
 
@@ -100,7 +124,7 @@ trait PrintPenalty {
 impl PrintPenalty for CacheDbRecord {
     fn print_penalty(&self) {
         println!();
-        println!("================Penalty percentile=============");
+        println!("================Penalty Percentile=============");
         self.penalty_stats().percentile.print_content();
         println!();
     }
@@ -115,6 +139,6 @@ impl Print for CacheDbRecord {
 
 pub(super) fn print_state_size(block_number: u64, size: usize) {
     println!();
-    println! {"block_number: {:?}, State size: {:?}", block_number, size};
+    println!("block_number: {}, State size: {}", block_number, size);
     println!();
 }
