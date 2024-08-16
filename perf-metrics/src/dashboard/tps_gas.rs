@@ -1,4 +1,4 @@
-//! This module is used to support the display of tps and mgas/s.
+//! This module is used to support the display of TPS and MGas/s.
 use crate::metrics::TpsAndGasMessage;
 use revm_utils::time_utils::instant::Instant;
 use std::ops::{Div, Mul};
@@ -15,8 +15,9 @@ pub(super) struct TpsAndGasDisplayer {
 impl TpsAndGasDisplayer {
     const N: u64 = 1000;
 
+    /// Updates the transactions and gas metrics, and prints the result if block_number is a multiple of `N`.
     fn update_tps_and_gas(&mut self, block_number: u64, txs: u128, gas: u128) {
-        if 0 == block_number % Self::N {
+        if block_number % Self::N == 0 {
             self.print_content(block_number, txs, gas);
         }
 
@@ -24,35 +25,37 @@ impl TpsAndGasDisplayer {
         self.last_gas = gas;
     }
 
+    /// Starts recording metrics by capturing the current state.
     fn start_record(&mut self) {
         self.pre_txs = self.last_txs;
         self.pre_gas = self.last_gas;
         self.pre_instant = Instant::now();
     }
 
+    /// Stops recording metrics and prints the final result.
     fn stop_record(&mut self, block_number: u64) {
         self.print_content(block_number, self.last_txs, self.last_gas);
     }
 
+    /// Prints the TPS and MGas/s metrics.
     fn print_content(&mut self, block_number: u64, txs: u128, gas: u128) {
         let now = Instant::now();
-        let elapsed_ns = now.checked_nanos_since(self.pre_instant).unwrap_or(0.0);
+        let elapsed_ns = now.checked_nanos_since(self.pre_instant).unwrap_or(1.0); // Avoid division by zero
         let delta_txs = txs - self.pre_txs;
         let delta_gas = gas - self.pre_gas;
 
-        let tps = delta_txs.mul(1000_000_000).div(elapsed_ns as u128);
-        let mgas_ps = (delta_gas as f64)
-            .mul(1000_000_000 as f64)
-            .div(elapsed_ns as f64);
+        let tps = (delta_txs as f64) * 1_000_000_000.0 / elapsed_ns;
+        let mgas_ps = (delta_gas as f64) * 1_000_000_000.0 / elapsed_ns;
 
         self.pre_txs = txs;
         self.pre_gas = gas;
         self.pre_instant = now;
 
-        println!("block_number: {:?}, TPS : {:?}", block_number, tps);
-        println!("block_number: {:?}, MGas: {:.3}\n", block_number, mgas_ps);
+        println!("block_number: {}, TPS : {:.2}", block_number, tps);
+        println!("block_number: {}, MGas: {:.3}\n", block_number, mgas_ps);
     }
 
+    /// Processes messages to update metrics or start/stop recording.
     pub(super) fn print(&mut self, block_number: u64, message: TpsAndGasMessage) {
         match message {
             TpsAndGasMessage::Record(record) => {
